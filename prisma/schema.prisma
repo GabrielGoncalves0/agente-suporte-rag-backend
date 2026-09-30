@@ -1,0 +1,72 @@
+generator client {
+  provider        = "prisma-client-js"
+  // Habilita o gerenciamento de extensões do PostgreSQL
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+// Configuração da conexão com o banco de dados
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  // Ativa a extensão pgvector no PostgreSQL
+  extensions = [vector]
+}
+
+// -----------------------------------------------------------------------------
+// MODELO 1: Documento Original (Pai)
+// Representa o arquivo completo que foi feito upload (ex: "Politica_Garantia.pdf")
+// -----------------------------------------------------------------------------
+model Document {
+  // Identificador único universal (UUID) gerado automaticamente
+  id String @id @default(uuid())
+
+  // Título amigável ou nome do arquivo
+  title String
+
+  // Conteúdo bruto completo do documento em formato texto
+  content String @db.Text
+
+  // Metadados flexíveis em JSON (ex: autor, categoria, versão do documento)
+  metadata Json?
+
+  // Data e hora de quando o documento foi cadastrado
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Atualiza automaticamente a data sempre que o documento for editado
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relacionamento 1 para N: um documento possui múltiplos pedaços (chunks)
+  chunks DocumentChunk[]
+
+  // Mapeia o nome da tabela no PostgreSQL para o padrão snake_case (documents)
+  @@map("documents")
+}
+
+// -----------------------------------------------------------------------------
+// MODELO 2: Pedaços do Documento (Filhos com Vetores)
+// É aqui que acontece a mágica do RAG e da Busca Híbrida
+// -----------------------------------------------------------------------------
+model DocumentChunk {
+  // Identificador único do pedaço
+  id String @id @default(uuid())
+
+  // Chave estrangeira apontando para o documento pai
+  documentId String @map("document_id")
+
+  // O trecho específico do texto cortado (~400 tokens) que será injetado no prompt da IA
+  content String @db.Text
+
+  // Coluna vetorial do pgvector: guarda o embedding de 1536 dimensões (text-embedding-3-small)
+  embedding Unsupported("vector(1536)")?
+
+  // Data de criação deste chunk
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relacionamento com Document:
+  // onDelete: Cascade garante que se o documento for excluído, todos os chunks e vetores
+  // antigos são apagados automaticamente (evita contaminação de contexto da IA!)
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  // Mapeia o nome da tabela no PostgreSQL para o padrão snake_case (document_chunks)
+  @@map("document_chunks")
+}
